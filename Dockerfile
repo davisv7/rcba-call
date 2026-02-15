@@ -10,4 +10,4 @@ COPY . .
 RUN mkdir -p uploads
 
 EXPOSE 8000
-CMD ["gunicorn", "-w", "2", "--preload", "-b", "0.0.0.0:8000", "app:app"]
+CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:8000", "app:app"]

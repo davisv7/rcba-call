@@ -4,35 +4,44 @@
 
 <details open>
   <summary>Record New</summary>
-  <div>
-    <label>Name <input type="text" id="rec-name" value="Meeting Reminder"></label>
-    <button id="btn-record">Start Recording</button>
-    <button id="btn-stop" disabled>Stop</button>
-    <div id="preview" style="margin-top:.5rem;"></div>
-    <button id="btn-save" disabled>Save Recording</button>
-    <p id="rec-status"></p>
+  <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin-bottom:.5rem;">
+    <input type="text" id="rec-name" value="Meeting Reminder" style="margin:0; width:auto;">
+    <button id="btn-record" style="margin:0; white-space:nowrap;"><i data-lucide="mic"></i> Start Recording</button>
+    <span id="rec-timer" style="font-size:.85rem; font-variant-numeric:tabular-nums; opacity:.6; display:none;">0:00</span>
+    <button id="btn-save" disabled style="display:none; margin:0; white-space:nowrap;"><i data-lucide="save"></i> Save Recording</button>
+    <button id="btn-cancel" class="outline secondary" style="display:none; margin:0; white-space:nowrap;"><i data-lucide="x"></i> Cancel</button>
   </div>
+  <div id="preview" style="margin-top:.5rem;"></div>
+  <p id="rec-status" style="font-size:.85em; opacity:.7;"></p>
 </details>
 
-<table>
-  <thead>
-    <tr><th>Name</th><th>Created</th><th>Play</th><th>Actions</th></tr>
-  </thead>
-  <tbody>
+{% if recordings %}
+<div style="display:flex; flex-direction:column; gap:.75rem;">
   {% for r in recordings %}
-    <tr>
-      <td>{{ r.name }}</td>
-      <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-      <td><audio controls src="{{ url_for('uploaded_file', filename=r.filename) }}" preload="none"></audio></td>
-      <td>
-        <form method="post" action="{{ url_for('recording_delete', id=r.id) }}" onsubmit="return confirm('Delete?')">
-          <button type="submit" class="outline secondary">Delete</button>
-        </form>
-      </td>
-    </tr>
+  <div style="display:flex; align-items:center; gap:1rem; padding:.75rem 1rem; border-radius:6px; background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.06); flex-wrap:wrap;">
+    <div style="flex:1; min-width:120px;">
+      <strong>{{ r.name }}</strong>
+      <div style="font-size:.8em; opacity:.5;">{{ r.created_at.strftime('%b %d, %Y') }}</div>
+    </div>
+    <div class="audio-player">
+      <button class="ap-btn ap-play" type="button"><i data-lucide="play"></i></button>
+      <span class="ap-time ap-cur">0:00</span>
+      <div class="ap-track"><div class="ap-progress"></div></div>
+      <span class="ap-time ap-dur">0:00</span>
+      <audio src="{{ url_for('uploaded_file', filename=r.filename) }}" preload="none"></audio>
+    </div>
+    <form method="post" action="{{ url_for('recording_delete', id=r.id) }}" onsubmit="return confirm('Delete?')" style="margin:0;">
+      <button type="submit" class="outline secondary btn-del" style="margin:0;"><i data-lucide="trash-2"></i></button>
+    </form>
+  </div>
   {% endfor %}
-  </tbody>
-</table>
+</div>
+{% else %}
+<p style="opacity:.5;">No recordings yet. Record one above.</p>
+{% endif %}
 
 <script src="{{ url_for('static', filename='recorder.js') }}"></script>
+<script>
+document.querySelectorAll('.audio-player').forEach(p => initPlayer(p));
+</script>
 {% endblock %}

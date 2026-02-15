@@ -2,7 +2,7 @@ import os
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from twilio.rest import Client
-from models import db, CallLog, Member
+from models import db, CallLog, Member, Meeting
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -14,20 +14,22 @@ def get_twilio_client():
     return Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
 
 
-def send_reminders(app, meeting_id, recording_id):
+def send_reminders(app, meeting_id, recording_id, org_id):
     """Dispatch calls to all active members for a meeting."""
     with app.app_context():
-        members = Member.query.filter_by(active=True).all()
+        meeting = db.session.get(Meeting, meeting_id)
+        members = [m for m in meeting.members if m.active] if meeting else []
         domain = os.environ.get("DOMAIN", "localhost:5000")
         scheme = "http" if "localhost" in domain else "https"
         from_number = os.environ.get("TWILIO_FROM_NUMBER", os.environ.get("TWILIO_FROM", ""))
 
-        logger.info("Sending reminders to %d members (meeting=%d, recording=%d)",
-                     len(members), meeting_id, recording_id)
+        logger.info("Sending reminders to %d members (meeting=%d, recording=%d, org=%d)",
+                     len(members), meeting_id, recording_id, org_id)
         logger.info("TwiML URL base: %s://%s", scheme, domain)
 
         for member in members:
             entry = CallLog(
+                org_id=org_id,
                 meeting_id=meeting_id,
                 recording_id=recording_id,
                 member_id=member.id,

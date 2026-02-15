@@ -1,5 +1,7 @@
 flask
 flask-sqlalchemy
+flask-login
+bcrypt
 twilio
 python-dotenv
 gunicorn

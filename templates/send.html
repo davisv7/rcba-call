@@ -7,7 +7,7 @@
     <select name="meeting_id" id="meeting-select" required>
       <option value="">-- Select --</option>
       {% for m in meetings %}
-      <option value="{{ m.id }}">{{ m.title }} ({{ m.meeting_date }})</option>
+      <option value="{{ m.id }}" {{ 'selected' if sel_meeting == m.id }}>{{ m.title }} ({{ m.meeting_date }})</option>
       {% endfor %}
     </select>
   </label>
@@ -15,24 +15,49 @@
     <select name="recording_id" required>
       <option value="">-- Select --</option>
       {% for r in recordings %}
-      <option value="{{ r.id }}">{{ r.name }}</option>
+      <option value="{{ r.id }}" {{ 'selected' if sel_recording == r.id }}>{{ r.name }}</option>
       {% endfor %}
     </select>
   </label>
-  <button type="submit" onclick="return confirm('Send calls to all active members?')">Send Calls</button>
+  <button type="submit" onclick="return confirm('Send calls to this meeting\'s members?')"><i data-lucide="phone-outgoing"></i> Send Calls</button>
 </form>
+
+<div id="recipients" style="margin-top:1rem;"></div>
 
 <h3>Progress</h3>
 <div id="progress">Select a meeting and click Send, or choose a meeting to view progress.</div>
-<table id="progress-table" style="display:none">
+<table id="progress-table" class="compact" style="display:none">
   <thead><tr><th>Member</th><th>Phone</th><th>Status</th></tr></thead>
   <tbody></tbody>
 </table>
 
 <script>
 const sel = document.getElementById('meeting-select');
-sel.addEventListener('change', poll);
+sel.addEventListener('change', () => { showRecipients(); poll(); });
 let timer;
+
+function showRecipients() {
+  const mid = sel.value;
+  const div = document.getElementById('recipients');
+  if (!mid) { div.innerHTML = ''; return; }
+  fetch('/api/meeting-members?meeting_id=' + mid)
+    .then(r => r.json())
+    .then(d => {
+      function goToMembers(e) {
+        e.preventDefault();
+        const recId = document.querySelector('[name=recording_id]').value || '';
+        window.location = '/meetings/' + mid + '?next=send&meeting_id=' + mid + '&recording_id=' + recId;
+      }
+      if (!d.members.length) {
+        div.innerHTML = '<p><strong>No members assigned to this meeting.</strong> <a href="#" class="edit-members">Add members</a></p>';
+        div.querySelector('.edit-members').addEventListener('click', goToMembers);
+        return;
+      }
+      div.innerHTML = '<p><strong>Will call ' + d.members.length + ' member' + (d.members.length !== 1 ? 's' : '') + ':</strong> ' +
+        d.members.map(m => m.name).join(', ') + ' <a href="#" class="edit-members">Edit</a></p>';
+      div.querySelector('.edit-members').addEventListener('click', goToMembers);
+    });
+}
 function poll() {
   clearInterval(timer);
   const mid = sel.value;
@@ -57,5 +82,6 @@ function poll() {
   fn();
   timer = setInterval(fn, 3000);
 }
+if (sel.value) { showRecipients(); poll(); }
 </script>
 {% endblock %}

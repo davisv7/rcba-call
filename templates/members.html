@@ -4,10 +4,10 @@
 
 <details>
   <summary>Add Member</summary>
-  <form method="post" style="display:flex; gap:.5rem; align-items:end; flex-wrap:wrap;">
+  <form method="post" style="display:flex; gap:.5rem; align-items:end; flex-wrap:wrap;" onsubmit="return normalizePhones(this)">
     <label>Name <input type="text" name="name" required></label>
-    <label>Phone (E.164) <input type="text" name="phone" placeholder="+18281234567" required></label>
-    <button type="submit">Add</button>
+    <label>Phone <input type="tel" name="phone" class="phone-input" placeholder="(828) 123-4567" required></label>
+    <button type="submit"><i data-lucide="plus"></i> Add</button>
   </form>
 </details>
 
@@ -16,30 +16,136 @@
   <form method="post" enctype="multipart/form-data">
     <p>CSV format: <code>Name,Phone</code> (one per line, no header required)</p>
     <input type="file" name="csv_file" accept=".csv" required>
-    <button type="submit">Import</button>
+    <button type="submit"><i data-lucide="upload"></i> Import</button>
   </form>
 </details>
 
-<table>
+<div class="table-wrap"><table class="compact">
   <thead>
-    <tr><th>Name</th><th>Phone</th><th>Active</th><th>Actions</th></tr>
+    <tr><th>Name</th><th>Phone</th><th>Actions</th></tr>
   </thead>
   <tbody>
   {% for m in members %}
-    <tr>
-      <form method="post" action="{{ url_for('member_edit', id=m.id) }}">
-        <td><input type="text" name="name" value="{{ m.name }}"></td>
-        <td><input type="text" name="phone" value="{{ m.phone }}"></td>
-        <td><input type="checkbox" name="active" {{ 'checked' if m.active }}></td>
-        <td style="display:flex; gap:.25rem;">
-          <button type="submit" class="outline">Save</button>
-      </form>
-      <form method="post" action="{{ url_for('member_delete', id=m.id) }}" onsubmit="return confirm('Delete?')">
-          <button type="submit" class="outline secondary">Del</button>
-      </form>
+    <tr data-row>
+      <form id="edit-{{ m.id }}" method="post" action="{{ url_for('member_edit', id=m.id) }}" onsubmit="return normalizePhones(this)"></form>
+      <form id="del-{{ m.id }}" method="post" action="{{ url_for('member_delete', id=m.id) }}" onsubmit="return confirm('Delete?')"></form>
+        <td><input type="text" name="name" value="{{ m.name }}" form="edit-{{ m.id }}" disabled></td>
+        <td><input type="tel" name="phone" class="phone-input" value="{{ m.phone }}" form="edit-{{ m.id }}" disabled></td>
+        <td>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:.25rem; width:160px;">
+            <div style="grid-column:1; grid-row:1;">
+              <button type="button" class="outline btn-edit" style="width:100%;"><i data-lucide="pencil"></i></button>
+              <button type="submit" form="edit-{{ m.id }}" class="outline btn-save" style="display:none; width:100%;"><i data-lucide="check"></i></button>
+            </div>
+            <div style="grid-column:2; grid-row:1;">
+              <button type="submit" form="del-{{ m.id }}" class="outline secondary btn-del" style="width:100%;"><i data-lucide="trash-2"></i></button>
+              <button type="button" class="outline secondary btn-cancel" style="display:none; width:100%;"><i data-lucide="x"></i></button>
+            </div>
+          </div>
         </td>
     </tr>
   {% endfor %}
   </tbody>
-</table>
+</table></div>
+
+<script>
+function formatPhone(digits) {
+  if (digits.length === 0) return '';
+  if (digits.length <= 3) return '(' + digits;
+  if (digits.length <= 6) return '(' + digits.slice(0,3) + ') ' + digits.slice(3);
+  return '(' + digits.slice(0,3) + ') ' + digits.slice(3,6) + '-' + digits.slice(6,10);
+}
+
+function stripToDigits(val) {
+  let digits = val.replace(/\D/g, '');
+  if (digits.length > 10 && digits[0] === '1') digits = digits.slice(1);
+  return digits.slice(0, 10);
+}
+
+document.addEventListener('input', function(e) {
+  if (!e.target.classList.contains('phone-input')) return;
+  const el = e.target;
+  const digits = stripToDigits(el.value);
+  const formatted = formatPhone(digits);
+  // preserve cursor position relative to digits
+  const pos = el.selectionStart;
+  const digitsBefore = el.value.slice(0, pos).replace(/\D/g, '').length;
+  el.value = formatted;
+  // find cursor position after formatting
+  let count = 0, newPos = 0;
+  for (let i = 0; i < formatted.length; i++) {
+    if (/\d/.test(formatted[i])) count++;
+    if (count >= digitsBefore) { newPos = i + 1; break; }
+  }
+  if (digitsBefore === 0) newPos = formatted.length;
+  el.setSelectionRange(newPos, newPos);
+});
+
+// handle backspace on formatting chars by deleting the digit before them
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Backspace') return;
+  if (!e.target.classList.contains('phone-input')) return;
+  const el = e.target;
+  const pos = el.selectionStart;
+  if (pos === el.selectionEnd && pos > 0 && !/\d/.test(el.value[pos - 1])) {
+    // find the previous digit and remove it
+    let i = pos - 1;
+    while (i > 0 && !/\d/.test(el.value[i])) i--;
+    if (/\d/.test(el.value[i])) {
+      el.value = el.value.slice(0, i) + el.value.slice(i + 1);
+      el.setSelectionRange(i, i);
+      el.dispatchEvent(new Event('input'));
+      e.preventDefault();
+    }
+  }
+});
+
+// On page load, format existing values
+document.querySelectorAll('.phone-input').forEach(function(el) {
+  if (el.value) {
+    el.value = formatPhone(stripToDigits(el.value));
+  }
+});
+
+// Edit / Cancel row toggling
+document.querySelectorAll('[data-row]').forEach(function(row) {
+  const inputs = row.querySelectorAll('input[name=name], input[name=phone]');
+  const btnEdit = row.querySelector('.btn-edit');
+  const btnSave = row.querySelector('.btn-save');
+  const btnCancel = row.querySelector('.btn-cancel');
+  const btnDel = row.querySelector('.btn-del');
+  const origValues = Array.from(inputs).map(i => i.value);
+
+  btnEdit.addEventListener('click', function() {
+    inputs.forEach(i => i.disabled = false);
+    btnEdit.style.display = 'none';
+    btnDel.style.display = 'none';
+    btnSave.style.display = '';
+    btnCancel.style.display = '';
+  });
+
+  btnCancel.addEventListener('click', function() {
+    inputs.forEach(function(i, idx) {
+      i.value = origValues[idx];
+      i.disabled = true;
+    });
+    // re-format phone display
+    inputs[1].value = formatPhone(stripToDigits(inputs[1].value));
+    btnEdit.style.display = '';
+    btnDel.style.display = '';
+    btnSave.style.display = 'none';
+    btnCancel.style.display = 'none';
+  });
+});
+
+// Convert to E.164 before submit
+function normalizePhones(form) {
+  form.querySelectorAll('.phone-input').forEach(function(el) {
+    let digits = el.value.replace(/\D/g, '');
+    if (digits.length === 10) digits = '1' + digits;
+    el.value = '+' + digits;
+  });
+  return true;
+}
+</script>
 {% endblock %}

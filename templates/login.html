@@ -1,25 +1,35 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Login - RCBA</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <style>
+    body { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .error { color: #ef9a9a; }
+  </style>
 </head>
 <body>
-<main class="container" style="max-width:400px; margin-top:10vh;">
-  <h2>RCBA Call Reminders</h2>
+<main class="container" style="max-width:380px;">
+  <h2 style="text-align:center;">RCBA Call Reminders</h2>
   {% with messages = get_flashed_messages() %}
   {% for msg in messages %}
-  <p style="color:red;">{{ msg }}</p>
+  <p class="error">{{ msg }}</p>
   {% endfor %}
   {% endwith %}
   <form method="post">
-    <label>Password
-      <input type="password" name="password" required autofocus>
+    <label>Email
+      <input type="email" name="email" required autofocus>
     </label>
-    <button type="submit">Login</button>
+    <label>Password
+      <input type="password" name="password" required>
+    </label>
+    <button type="submit" style="width:100%;">Login</button>
   </form>
+  <p style="text-align:center; margin-top:1rem; opacity:.7;">
+    <a href="{{ url_for('register') }}">Register a new organization</a>
+  </p>
 </main>
 </body>
 </html>

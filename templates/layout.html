@@ -1,43 +1,163 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RCBA Call Reminders</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
   <style>
-    nav ul { list-style: none; display: flex; gap: 1rem; padding: 0; }
-    .flash { padding: .75rem; background: #e8f5e9; border-radius: 4px; margin-bottom: 1rem; }
+    body { min-height: 100vh; }
+    main.container { padding-top: 0; }
+
+    /* Nav */
+    .site-nav { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .25rem; padding: .75rem 0; margin-bottom: .5rem; }
+    .nav-brand { font-weight: 700; white-space: nowrap; }
+    .org-name { font-size: .85em; opacity: .5; margin-left: .25rem; }
+    .nav-links { list-style: none; display: flex; gap: .75rem; padding: 0; margin: 0; flex-wrap: wrap; align-items: center; }
+    .nav-links li { margin: 0; padding: 0; }
+    .nav-links a { opacity: .75; transition: opacity .15s; text-decoration: none; font-size: .9em; }
+    .nav-links a:hover { opacity: 1; }
+    .nav-toggle { display: none; background: none; border: 1px solid rgba(255,255,255,.2); border-radius: 4px; color: inherit; width: 2rem; height: 2rem; cursor: pointer; margin: 0; padding: 0; align-items: center; justify-content: center; }
+    .nav-toggle span { display: block; width: 14px; height: 2px; background: currentColor; border-radius: 1px; position: relative; }
+    .nav-toggle span::before, .nav-toggle span::after { content: ''; display: block; width: 14px; height: 2px; background: currentColor; border-radius: 1px; position: absolute; left: 0; }
+    .nav-toggle span::before { top: -5px; }
+    .nav-toggle span::after { top: 5px; }
+
+    @media (max-width: 768px) {
+      .nav-toggle { display: inline-flex; }
+      .nav-links { display: none; width: 100%; flex-direction: column; gap: 0; padding: .25rem 0; }
+      .nav-links.open { display: flex; }
+      .nav-links li { width: 100%; margin: 0; padding: 0; }
+      .nav-links a { display: block; padding: .35rem .5rem; font-size: .95em; line-height: 1.2; }
+      .site-nav { flex-wrap: wrap; }
+      .nav-top { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+    }
+
+    /* Toast */
+    .flash-container {
+      position: fixed;
+      bottom: 1rem;
+      right: 1rem;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: .5rem;
+    }
+    .flash {
+      padding: .6rem 1rem;
+      background: rgba(30, 30, 30, .95);
+      border-left: 3px solid #4caf50;
+      border-radius: 6px;
+      color: #a5d6a7;
+      box-shadow: 0 4px 12px rgba(0,0,0,.4);
+      animation: toast-in .3s ease, toast-out .3s ease 2.7s forwards;
+      max-width: 320px;
+      font-size: .9em;
+    }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toast-out { from { opacity: 1; } to { opacity: 0; } }
+
+    /* Tables */
     table { width: 100%; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: .85em; }
-    .badge-queued { background: #fff3cd; }
-    .badge-completed { background: #d4edda; }
-    .badge-failed { background: #f8d7da; }
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+    /* Badges */
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: .8em;
+      font-weight: 500;
+      letter-spacing: .02em;
+      white-space: nowrap;
+    }
+    .badge-queued { background: rgba(255, 193, 7, .15); color: #ffd54f; }
+    .badge-completed { background: rgba(76, 175, 80, .15); color: #81c784; }
+    .badge-failed { background: rgba(244, 67, 54, .15); color: #ef9a9a; }
+
+    details { margin-bottom: 1rem; }
+    details summary { cursor: pointer; font-weight: 500; }
+    h2 { margin-bottom: 1rem; }
+    table th, table td { padding: .4rem .6rem; vertical-align: middle; }
+    input, select, button { margin-bottom: .5rem; }
+    .compact input,
+    .compact select,
+    .compact button {
+      margin: 0;
+      padding: .45rem .65rem;
+      height: auto;
+      font-size: .9rem;
+    }
+    .compact form {
+      margin: 0;
+      display: inline;
+    }
+    .flash { margin-bottom: 1rem; }
+
+    /* Lucide icons in buttons */
+    button i[data-lucide] { display: inline-block; width: 1em; height: 1em; vertical-align: middle; }
+    button svg, button .lucide { width: 1em !important; height: 1em !important; vertical-align: middle; }
+    button .lucide + span, button svg + span { margin-left: .3rem; }
+    .btn-del .lucide, .btn-del svg { color: #e57373; }
+
+    /* Custom audio player */
+    .audio-player {
+      display: flex; align-items: center; gap: .5rem;
+      flex: 2; min-width: 200px;
+    }
+    .audio-player .ap-btn {
+      background: none; border: none; cursor: pointer;
+      color: rgba(255,255,255,.75);
+      padding: 0; margin: 0; line-height: 0; width: 28px; height: 28px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 50%; transition: background .15s, color .15s;
+    }
+    .audio-player .ap-btn:hover { color: #fff; background: rgba(255,255,255,.1); }
+    .audio-player .ap-btn svg, .audio-player .ap-btn .lucide { width: 16px; height: 16px; fill: currentColor; }
+    .audio-player .ap-time {
+      font-size: .75rem; opacity: .5; font-variant-numeric: tabular-nums;
+      min-width: 3.2rem; text-align: center; white-space: nowrap;
+    }
+    .audio-player .ap-track {
+      flex: 1; height: 4px; background: rgba(255,255,255,.1);
+      border-radius: 2px; cursor: pointer; position: relative;
+    }
+    .audio-player .ap-progress {
+      height: 100%; background: var(--pico-primary-background, #6a9fdb);
+      border-radius: 2px; width: 0; pointer-events: none;
+    }
   </style>
 </head>
 <body>
 <main class="container">
-  <nav>
-    <ul>
-      <li><strong>RCBA</strong></li>
+  <nav class="site-nav">
+    <div class="nav-top">
+      <span class="nav-brand">RCBA<span class="org-name">{{ current_user.organization.name }}</span></span>
+      <button class="nav-toggle" onclick="document.getElementById('nav-links').classList.toggle('open')" aria-label="Menu"><span></span></button>
+    </div>
+    <ul class="nav-links" id="nav-links">
       <li><a href="{{ url_for('members_page') }}">Members</a></li>
       <li><a href="{{ url_for('recordings_page') }}">Recordings</a></li>
       <li><a href="{{ url_for('meetings_page') }}">Meetings</a></li>
       <li><a href="{{ url_for('send_page') }}">Send</a></li>
       <li><a href="{{ url_for('call_log_page') }}">Call Log</a></li>
-    </ul>
-    <ul>
       <li><a href="{{ url_for('logout') }}">Logout</a></li>
     </ul>
   </nav>
 
   {% with messages = get_flashed_messages() %}
-  {% for msg in messages %}
-  <div class="flash">{{ msg }}</div>
-  {% endfor %}
+  {% if messages %}
+  <div class="flash-container">
+    {% for msg in messages %}
+    <div class="flash">{{ msg }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
   {% endwith %}
 
   {% block content %}{% endblock %}
 </main>
+<script src="https://unpkg.com/lucide@0.460.0"></script>
+<script>lucide.createIcons();</script>
 </body>
 </html>

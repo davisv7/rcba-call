@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CallReminder - Automated Meeting Reminders by Phone</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <style>
+    .hero { text-align: center; padding: 4rem 0 2rem; }
+    .hero h1 { font-size: 2.5rem; margin-bottom: .5rem; }
+    .hero p { font-size: 1.2rem; color: var(--pico-muted-color); max-width: 600px; margin: 0 auto 2rem; }
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 2rem; margin: 3rem 0; }
+    .feature h3 { margin-bottom: .25rem; }
+    .feature p { color: var(--pico-muted-color); }
+    .cta { text-align: center; padding: 2rem 0; }
+    .steps { counter-reset: step; list-style: none; padding: 0; max-width: 500px; margin: 0 auto; }
+    .steps li { counter-increment: step; margin-bottom: 1.5rem; padding-left: 2.5rem; position: relative; }
+    .steps li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 1.8rem; height: 1.8rem; background: var(--pico-primary); color: #fff; border-radius: 50%; text-align: center; line-height: 1.8rem; font-weight: bold; font-size: .9rem; }
+  </style>
+</head>
+<body>
+<main class="container">
+  <nav>
+    <ul><li><strong>CallReminder</strong></li></ul>
+    <ul><li><a href="{{ url_for('login') }}" role="button" class="outline">Log In</a></li></ul>
+  </nav>
+
+  <section class="hero">
+    <h1>Never Miss a Meeting Again</h1>
+    <p>Send automated phone call reminders to your entire organization in one click. Perfect for clubs, churches, and community groups.</p>
+    <a href="{{ url_for('login') }}" role="button">Get Started</a>
+  </section>
+
+  <section class="features">
+    <div class="feature">
+      <h3>Record Your Message</h3>
+      <p>Record a custom reminder right from your browser. No special equipment needed.</p>
+    </div>
+    <div class="feature">
+      <h3>Manage Members</h3>
+      <p>Add members one at a time or import a whole list from a CSV file.</p>
+    </div>
+    <div class="feature">
+      <h3>Send with One Click</h3>
+      <p>Pick a meeting, pick a recording, hit send. Everyone gets called automatically.</p>
+    </div>
+    <div class="feature">
+      <h3>Track Every Call</h3>
+      <p>See which calls connected, which went to voicemail, and which failed -- all in real time.</p>
+    </div>
+  </section>
+
+  <section class="cta">
+    <h2>How It Works</h2>
+    <ol class="steps">
+      <li><strong>Add your members</strong> -- enter phone numbers or upload a CSV</li>
+      <li><strong>Record a message</strong> -- use your browser microphone to record a reminder</li>
+      <li><strong>Create a meeting</strong> -- set the title and date</li>
+      <li><strong>Hit send</strong> -- every active member gets a phone call with your recording</li>
+    </ol>
+  </section>
+
+  <footer style="text-align:center; padding:2rem 0; color:var(--pico-muted-color);">
+    CallReminder
+  </footer>
+</main>
+</body>
+</html>

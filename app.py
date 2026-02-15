@@ -62,9 +62,10 @@ def logout():
 # --- Pages ---
 
 @app.route("/")
-@login_required
 def index():
-    return redirect(url_for("members_page"))
+    if session.get("logged_in"):
+        return redirect(url_for("members_page"))
+    return render_template("landing.html")
 
 
 @app.route("/members", methods=["GET", "POST"])

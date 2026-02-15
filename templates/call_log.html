@@ -1,0 +1,36 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>Call Log</h2>
+
+<form method="get" style="display:flex; gap:.5rem; align-items:end;">
+  <label>Filter by Meeting
+    <select name="meeting_id" onchange="this.form.submit()">
+      <option value="">All</option>
+      {% for m in meetings %}
+      <option value="{{ m.id }}" {{ 'selected' if selected_meeting == m.id }}>{{ m.title }} ({{ m.meeting_date }})</option>
+      {% endfor %}
+    </select>
+  </label>
+</form>
+
+<table>
+  <thead>
+    <tr><th>Date</th><th>Meeting</th><th>Member</th><th>Phone</th><th>Status</th><th>SID</th></tr>
+  </thead>
+  <tbody>
+  {% for l in logs %}
+    <tr>
+      <td>{{ l.initiated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td>{{ l.meeting.title }}</td>
+      <td>{{ l.member.name }}</td>
+      <td>{{ l.member.phone }}</td>
+      <td>
+        {% set cls = 'badge-completed' if l.status == 'completed' else 'badge-failed' if l.status in ('failed','busy','no-answer','canceled') else 'badge-queued' %}
+        <span class="badge {{ cls }}">{{ l.status }}</span>
+      </td>
+      <td style="font-size:.75em">{{ l.twilio_call_sid or '' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

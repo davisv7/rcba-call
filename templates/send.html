@@ -1,0 +1,61 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>Send Reminders</h2>
+
+<form method="post">
+  <label>Meeting
+    <select name="meeting_id" id="meeting-select" required>
+      <option value="">-- Select --</option>
+      {% for m in meetings %}
+      <option value="{{ m.id }}">{{ m.title }} ({{ m.meeting_date }})</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Recording
+    <select name="recording_id" required>
+      <option value="">-- Select --</option>
+      {% for r in recordings %}
+      <option value="{{ r.id }}">{{ r.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit" onclick="return confirm('Send calls to all active members?')">Send Calls</button>
+</form>
+
+<h3>Progress</h3>
+<div id="progress">Select a meeting and click Send, or choose a meeting to view progress.</div>
+<table id="progress-table" style="display:none">
+  <thead><tr><th>Member</th><th>Phone</th><th>Status</th></tr></thead>
+  <tbody></tbody>
+</table>
+
+<script>
+const sel = document.getElementById('meeting-select');
+sel.addEventListener('change', poll);
+let timer;
+function poll() {
+  clearInterval(timer);
+  const mid = sel.value;
+  if (!mid) return;
+  const fn = () => {
+    fetch('/api/send-progress?meeting_id=' + mid)
+      .then(r => r.json())
+      .then(d => {
+        if (!d.total) { document.getElementById('progress').textContent = 'No calls yet.'; return; }
+        document.getElementById('progress').textContent =
+          `Total: ${d.total} | Completed: ${d.completed} | Failed: ${d.failed} | Queued: ${d.queued}`;
+        const tb = document.querySelector('#progress-table tbody');
+        tb.innerHTML = '';
+        document.getElementById('progress-table').style.display = '';
+        d.rows.forEach(r => {
+          const cls = r.status === 'completed' ? 'badge-completed' : r.status === 'failed' ? 'badge-failed' : 'badge-queued';
+          tb.insertAdjacentHTML('beforeend',
+            `<tr><td>${r.member}</td><td>${r.phone}</td><td><span class="badge ${cls}">${r.status}</span></td></tr>`);
+        });
+      });
+  };
+  fn();
+  timer = setInterval(fn, 3000);
+}
+</script>
+{% endblock %}

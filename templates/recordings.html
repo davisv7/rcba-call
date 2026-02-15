@@ -1,0 +1,38 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>Recordings</h2>
+
+<details open>
+  <summary>Record New</summary>
+  <div>
+    <label>Name <input type="text" id="rec-name" value="Meeting Reminder"></label>
+    <button id="btn-record">Start Recording</button>
+    <button id="btn-stop" disabled>Stop</button>
+    <div id="preview" style="margin-top:.5rem;"></div>
+    <button id="btn-save" disabled>Save Recording</button>
+    <p id="rec-status"></p>
+  </div>
+</details>
+
+<table>
+  <thead>
+    <tr><th>Name</th><th>Created</th><th>Play</th><th>Actions</th></tr>
+  </thead>
+  <tbody>
+  {% for r in recordings %}
+    <tr>
+      <td>{{ r.name }}</td>
+      <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td><audio controls src="{{ url_for('uploaded_file', filename=r.filename) }}" preload="none"></audio></td>
+      <td>
+        <form method="post" action="{{ url_for('recording_delete', id=r.id) }}" onsubmit="return confirm('Delete?')">
+          <button type="submit" class="outline secondary">Delete</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<script src="{{ url_for('static', filename='recorder.js') }}"></script>
+{% endblock %}

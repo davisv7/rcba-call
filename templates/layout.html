@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RCBA Call Reminders</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <style>
+    nav ul { list-style: none; display: flex; gap: 1rem; padding: 0; }
+    .flash { padding: .75rem; background: #e8f5e9; border-radius: 4px; margin-bottom: 1rem; }
+    table { width: 100%; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: .85em; }
+    .badge-queued { background: #fff3cd; }
+    .badge-completed { background: #d4edda; }
+    .badge-failed { background: #f8d7da; }
+  </style>
+</head>
+<body>
+<main class="container">
+  <nav>
+    <ul>
+      <li><strong>RCBA</strong></li>
+      <li><a href="{{ url_for('members_page') }}">Members</a></li>
+      <li><a href="{{ url_for('recordings_page') }}">Recordings</a></li>
+      <li><a href="{{ url_for('meetings_page') }}">Meetings</a></li>
+      <li><a href="{{ url_for('send_page') }}">Send</a></li>
+      <li><a href="{{ url_for('call_log_page') }}">Call Log</a></li>
+    </ul>
+    <ul>
+      <li><a href="{{ url_for('logout') }}">Logout</a></li>
+    </ul>
+  </nav>
+
+  {% with messages = get_flashed_messages() %}
+  {% for msg in messages %}
+  <div class="flash">{{ msg }}</div>
+  {% endfor %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

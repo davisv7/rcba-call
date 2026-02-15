@@ -1,0 +1,45 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>Members</h2>
+
+<details>
+  <summary>Add Member</summary>
+  <form method="post" style="display:flex; gap:.5rem; align-items:end; flex-wrap:wrap;">
+    <label>Name <input type="text" name="name" required></label>
+    <label>Phone (E.164) <input type="text" name="phone" placeholder="+18281234567" required></label>
+    <button type="submit">Add</button>
+  </form>
+</details>
+
+<details>
+  <summary>Import CSV</summary>
+  <form method="post" enctype="multipart/form-data">
+    <p>CSV format: <code>Name,Phone</code> (one per line, no header required)</p>
+    <input type="file" name="csv_file" accept=".csv" required>
+    <button type="submit">Import</button>
+  </form>
+</details>
+
+<table>
+  <thead>
+    <tr><th>Name</th><th>Phone</th><th>Active</th><th>Actions</th></tr>
+  </thead>
+  <tbody>
+  {% for m in members %}
+    <tr>
+      <form method="post" action="{{ url_for('member_edit', id=m.id) }}">
+        <td><input type="text" name="name" value="{{ m.name }}"></td>
+        <td><input type="text" name="phone" value="{{ m.phone }}"></td>
+        <td><input type="checkbox" name="active" {{ 'checked' if m.active }}></td>
+        <td style="display:flex; gap:.25rem;">
+          <button type="submit" class="outline">Save</button>
+      </form>
+      <form method="post" action="{{ url_for('member_delete', id=m.id) }}" onsubmit="return confirm('Delete?')">
+          <button type="submit" class="outline secondary">Del</button>
+      </form>
+        </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

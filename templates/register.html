@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Register - RCBA</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <style>
+    body { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .error { color: #ef9a9a; }
+  </style>
+</head>
+<body>
+<main class="container" style="max-width:380px;">
+  <h2 style="text-align:center;">Register Your Organization</h2>
+  {% with messages = get_flashed_messages() %}
+  {% for msg in messages %}
+  <p class="error">{{ msg }}</p>
+  {% endfor %}
+  {% endwith %}
+  <form method="post">
+    <label>Organization Name
+      <input type="text" name="org_name" required autofocus>
+    </label>
+    <label>Email
+      <input type="email" name="email" required>
+    </label>
+    <label>Password
+      <input type="password" name="password" required minlength="6">
+    </label>
+    <button type="submit" style="width:100%;">Register</button>
+  </form>
+  <p style="text-align:center; margin-top:1rem; opacity:.7;">
+    <a href="{{ url_for('login') }}">Already have an account? Login</a>
+  </p>
+</main>
+</body>
+</html>

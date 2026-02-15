@@ -1,0 +1,41 @@
+{% extends "layout.html" %}
+{% block content %}
+<h2>{{ meeting.title }}</h2>
+<p><strong>Date:</strong> {{ meeting.meeting_date }}</p>
+
+<h3>Members ({{ meeting.members | length }})</h3>
+<form method="post" action="{{ url_for('meeting_members_update', id=meeting.id, next=request.args.get('next', ''), meeting_id=request.args.get('meeting_id', ''), recording_id=request.args.get('recording_id', '')) }}">
+  <fieldset style="display:flex; flex-direction:column; gap:.25rem;">
+    {% for m in all_members %}
+    <label style="display:flex; align-items:center; gap:.5rem;">
+      <input type="checkbox" name="member_ids" value="{{ m.id }}" style="margin:0;"
+        {% if m in meeting.members %}checked{% endif %}>
+      {{ m.name }} ({{ m.phone }})
+    </label>
+    {% endfor %}
+  </fieldset>
+  <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
+    <button type="submit" style="width:auto; white-space:nowrap;"><i data-lucide="save"></i> Save Members</button>
+    <button type="button" id="btn-toggle-all" class="outline" style="width:auto; white-space:nowrap;"><i data-lucide="square-check"></i> Select All</button>
+  </div>
+  <script>
+    document.getElementById('btn-toggle-all').addEventListener('click', function() {
+      const boxes = document.querySelectorAll('[name=member_ids]');
+      const allChecked = Array.from(boxes).every(c => c.checked);
+      boxes.forEach(c => c.checked = !allChecked);
+      const icon = this.querySelector('[data-lucide], svg');
+      const next = allChecked ? 'square' : 'square-check';
+      this.innerHTML = '<i data-lucide="' + next + '"></i> ' + (allChecked ? 'Select All' : 'Select None');
+      lucide.createIcons({ nodes: [this] });
+    });
+  </script>
+</form>
+
+<p>
+  {% if request.args.get('next') == 'send' %}
+    <a href="{{ url_for('send_page', meeting_id=request.args.get('meeting_id', ''), recording_id=request.args.get('recording_id', '')) }}">&larr; Back to send</a>
+  {% else %}
+    <a href="{{ url_for('meetings_page') }}">&larr; Back to meetings</a>
+  {% endif %}
+</p>
+{% endblock %}

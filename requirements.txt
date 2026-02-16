@@ -7,4 +7,5 @@ bcrypt
 twilio
 python-dotenv
 gunicorn
+flask-migrate
 pyngrok

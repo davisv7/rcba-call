@@ -4,4 +4,4 @@ instance/
 *.pyc
 *.db
 .env
-uploads/*.mp3
+uploads/*

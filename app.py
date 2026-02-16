@@ -14,6 +14,7 @@ from flask import (
 )
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_wtf.csrf import CSRFProtect
+from flask_migrate import Migrate
 from dotenv import load_dotenv
 from twilio.twiml.voice_response import VoiceResponse
 
@@ -21,7 +22,7 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
-    "DATABASE_URL", f"sqlite:///{os.path.join(os.path.dirname(__file__), 'rcba.db')}"
+    "DATABASE_URL", f"sqlite:///{os.path.join(os.path.dirname(__file__), 'callreminder.db')}"
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me-in-production")
@@ -30,6 +31,7 @@ app.config["UPLOAD_FOLDER"] = os.path.join(os.path.dirname(__file__), "uploads")
 from models import db, Organization, User, Member, Recording, Meeting, CallLog
 
 db.init_app(app)
+migrate = Migrate(app, db)
 csrf = CSRFProtect(app)
 
 login_manager = LoginManager()
@@ -40,10 +42,6 @@ login_manager.init_app(app)
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
-
-
-with app.app_context():
-    db.create_all()
 
 
 def _slugify(name):

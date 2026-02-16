@@ -74,8 +74,16 @@ function poll() {
         document.getElementById('progress-table').style.display = '';
         d.rows.forEach(r => {
           const cls = r.status === 'completed' ? 'badge-completed' : r.status === 'failed' ? 'badge-failed' : 'badge-queued';
-          tb.insertAdjacentHTML('beforeend',
-            `<tr><td>${r.member}</td><td>${r.phone}</td><td><span class="badge ${cls}">${r.status}</span></td></tr>`);
+          const tr = document.createElement('tr');
+          const td1 = tr.appendChild(document.createElement('td'));
+          td1.textContent = r.member;
+          const td2 = tr.appendChild(document.createElement('td'));
+          td2.textContent = r.phone;
+          const td3 = tr.appendChild(document.createElement('td'));
+          const span = td3.appendChild(document.createElement('span'));
+          span.className = 'badge ' + cls;
+          span.textContent = r.status;
+          tb.appendChild(tr);
         });
       });
   };

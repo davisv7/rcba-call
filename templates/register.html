@@ -19,6 +19,7 @@
   {% endfor %}
   {% endwith %}
   <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Organization Name
       <input type="text" name="org_name" required autofocus>
     </label>

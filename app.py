@@ -13,6 +13,7 @@ from flask import (
     Response, send_from_directory, flash
 )
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from flask_wtf.csrf import CSRFProtect
 from dotenv import load_dotenv
 from twilio.twiml.voice_response import VoiceResponse
 
@@ -29,6 +30,7 @@ app.config["UPLOAD_FOLDER"] = os.path.join(os.path.dirname(__file__), "uploads")
 from models import db, Organization, User, Member, Recording, Meeting, CallLog
 
 db.init_app(app)
+csrf = CSRFProtect(app)
 
 login_manager = LoginManager()
 login_manager.login_view = "login"
@@ -47,6 +49,20 @@ with app.app_context():
 def _slugify(name):
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
     return slug or "org"
+
+
+MAX_AUDIO_SIZE = 50 * 1024 * 1024  # 50 MB
+MAX_CSV_SIZE = 5 * 1024 * 1024     # 5 MB
+
+
+def _valid_phone(phone):
+    """Return cleaned phone or None if invalid. Accepts 10-digit US numbers."""
+    digits = re.sub(r"\D", "", phone)
+    if digits.startswith("1") and len(digits) == 11:
+        digits = digits[1:]
+    if len(digits) != 10:
+        return None
+    return f"+1{digits}"
 
 
 def _org_upload_dir(org_id):
@@ -160,24 +176,39 @@ def members_page():
         # CSV import
         f = request.files.get("csv_file")
         if f and f.filename:
-            stream = io.TextIOWrapper(f.stream, encoding="utf-8")
+            f.seek(0, 2)
+            if f.tell() > MAX_CSV_SIZE:
+                flash("CSV too large (5 MB max).")
+                return redirect(url_for("members_page"))
+            f.seek(0)
+            stream = io.TextIOWrapper(f.stream, encoding="utf-8", errors="replace")
             reader = csv.reader(stream)
+            added, skipped = 0, 0
             for row in reader:
                 if len(row) >= 2:
-                    name, phone = row[0].strip(), row[1].strip()
+                    name = row[0].strip()
+                    phone = _valid_phone(row[1].strip())
                     if name and phone:
                         db.session.add(Member(org_id=org_id, name=name, phone=phone))
+                        added += 1
+                    elif name:
+                        skipped += 1
             db.session.commit()
-            flash("CSV imported.")
+            msg = f"CSV imported: {added} added."
+            if skipped:
+                msg += f" {skipped} skipped (invalid phone)."
+            flash(msg)
             return redirect(url_for("members_page"))
 
         # Single add
         name = request.form.get("name", "").strip()
-        phone = request.form.get("phone", "").strip()
+        phone = _valid_phone(request.form.get("phone", "").strip())
         if name and phone:
             db.session.add(Member(org_id=org_id, name=name, phone=phone))
             db.session.commit()
             flash("Member added.")
+        elif name:
+            flash("Invalid phone number. Use a 10-digit US number.")
         return redirect(url_for("members_page"))
 
     members = Member.query.filter_by(org_id=org_id).order_by(Member.name).all()
@@ -192,7 +223,11 @@ def member_edit(id):
         flash("Not found.")
         return redirect(url_for("members_page"))
     m.name = request.form.get("name", m.name).strip()
-    m.phone = request.form.get("phone", m.phone).strip()
+    phone = _valid_phone(request.form.get("phone", m.phone).strip())
+    if not phone:
+        flash("Invalid phone number. Use a 10-digit US number.")
+        return redirect(url_for("members_page"))
+    m.phone = phone
     m.active = "active" in request.form
     db.session.commit()
     flash("Updated.")
@@ -224,6 +259,10 @@ def upload_recording():
     f = request.files.get("audio")
     if not f:
         return jsonify(error="No audio file"), 400
+    f.seek(0, 2)
+    if f.tell() > MAX_AUDIO_SIZE:
+        return jsonify(error="File too large (50 MB max)"), 400
+    f.seek(0)
 
     org_id = current_user.org_id
     upload_dir = _org_upload_dir(org_id)
@@ -273,9 +312,13 @@ def meetings_page():
     if request.method == "POST":
         title = request.form.get("title", "").strip()
         date_str = request.form.get("meeting_date", "")
-        notes = request.form.get("notes", "")
+        notes = request.form.get("notes", "").strip()
         if title and date_str:
-            meeting_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            try:
+                meeting_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            except ValueError:
+                flash("Invalid date format.")
+                return redirect(url_for("meetings_page"))
             db.session.add(Meeting(org_id=org_id, title=title, meeting_date=meeting_date, notes=notes))
             db.session.commit()
             flash("Meeting created.")
@@ -400,6 +443,7 @@ def call_log_page():
 # --- Twilio endpoints ---
 
 @app.route("/twiml", methods=["GET", "POST"])
+@csrf.exempt
 def twiml():
     recording_id = request.args.get("recording_id", type=int)
     rec = db.session.get(Recording, recording_id) if recording_id else None
@@ -414,6 +458,7 @@ def twiml():
 
 
 @app.route("/api/call-status", methods=["POST"])
+@csrf.exempt
 def call_status():
     sid = request.form.get("CallSid")
     status = request.form.get("CallStatus")

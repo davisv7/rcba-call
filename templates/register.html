@@ -13,13 +13,10 @@
 <body>
 <main class="container" style="max-width:380px;">
   <h2 style="text-align:center;">Register Your Organization</h2>
-  {% with messages = get_flashed_messages() %}
-  {% for msg in messages %}
+  {% if msg %}
   <p class="error">{{ msg }}</p>
-  {% endfor %}
-  {% endwith %}
+  {% endif %}
   <form method="post">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Organization Name
       <input type="text" name="org_name" required autofocus>
     </label>
@@ -32,7 +29,7 @@
     <button type="submit" style="width:100%;">Register</button>
   </form>
   <p style="text-align:center; margin-top:1rem; opacity:.7;">
-    <a href="{{ url_for('login') }}">Already have an account? Login</a>
+    <a href="/login">Already have an account? Login</a>
   </p>
 </main>
 </body>

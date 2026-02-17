@@ -28,9 +28,9 @@
       <span class="ap-time ap-cur">0:00</span>
       <div class="ap-track"><div class="ap-progress"></div></div>
       <span class="ap-time ap-dur">0:00</span>
-      <audio src="{{ url_for('uploaded_file', filename=r.filename) }}" preload="none"></audio>
+      <audio src="/uploads/{{ r.filename }}" preload="none"></audio>
     </div>
-    <form method="post" action="{{ url_for('recording_delete', id=r.id) }}" onsubmit="return confirm('Delete?')" style="margin:0;">
+    <form method="post" action="/recordings/{{ r.id }}/delete" onsubmit="return confirm('Delete?')" style="margin:0;">
       <button type="submit" class="outline secondary btn-del" style="margin:0;"><i data-lucide="trash-2"></i></button>
     </form>
   </div>
@@ -40,7 +40,7 @@
 <p style="opacity:.5;">No recordings yet. Record one above.</p>
 {% endif %}
 
-<script src="{{ url_for('static', filename='recorder.js') }}"></script>
+<script src="/static/recorder.js"></script>
 <script>
 document.querySelectorAll('.audio-player').forEach(p => initPlayer(p));
 </script>

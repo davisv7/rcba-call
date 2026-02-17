@@ -13,13 +13,10 @@
 <body>
 <main class="container" style="max-width:380px;">
   <h2 style="text-align:center;">RCBA Call Reminders</h2>
-  {% with messages = get_flashed_messages() %}
-  {% for msg in messages %}
+  {% if msg %}
   <p class="error">{{ msg }}</p>
-  {% endfor %}
-  {% endwith %}
+  {% endif %}
   <form method="post">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Email
       <input type="email" name="email" required autofocus>
     </label>
@@ -29,7 +26,7 @@
     <button type="submit" style="width:100%;">Login</button>
   </form>
   <p style="text-align:center; margin-top:1rem; opacity:.7;">
-    <a href="{{ url_for('register') }}">Register a new organization</a>
+    <a href="/register">Register a new organization</a>
   </p>
 </main>
 </body>

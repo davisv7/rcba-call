@@ -4,44 +4,33 @@ import re
 import uuid
 import subprocess
 import io
-import click
 from datetime import datetime, timezone
 
 import bcrypt
-from flask import (
-    Flask, render_template, request, redirect, url_for, jsonify,
-    Response, send_from_directory, flash
-)
-from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from flask_wtf.csrf import CSRFProtect
-from flask_migrate import Migrate
+from fastapi import FastAPI, Request, Depends, Form, UploadFile, File, Query
+from fastapi.responses import RedirectResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 from twilio.twiml.voice_response import VoiceResponse
 
 load_dotenv()
 
-app = Flask(__name__)
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
-    "DATABASE_URL", f"sqlite:///{os.path.join(os.path.dirname(__file__), 'callreminder.db')}"
-)
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me-in-production")
-app.config["UPLOAD_FOLDER"] = os.path.join(os.path.dirname(__file__), "uploads")
+from database import get_db, engine
+from models import Base, Organization, User, Member, Recording, Meeting, CallLog
+from auth import create_access_token, get_current_user, get_optional_user
 
-from models import db, Organization, User, Member, Recording, Meeting, CallLog
+app = FastAPI()
 
-db.init_app(app)
-migrate = Migrate(app, db)
-csrf = CSRFProtect(app)
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(os.path.join(os.path.dirname(__file__), "static"), exist_ok=True)
 
-login_manager = LoginManager()
-login_manager.login_view = "login"
-login_manager.init_app(app)
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
+app.mount("/uploads", StaticFiles(directory=UPLOAD_FOLDER), name="uploads")
 
-
-@login_manager.user_loader
-def load_user(user_id):
-    return db.session.get(User, int(user_id))
+templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
 
 def _slugify(name):
@@ -49,12 +38,11 @@ def _slugify(name):
     return slug or "org"
 
 
-MAX_AUDIO_SIZE = 50 * 1024 * 1024  # 50 MB
-MAX_CSV_SIZE = 5 * 1024 * 1024     # 5 MB
+MAX_AUDIO_SIZE = 50 * 1024 * 1024
+MAX_CSV_SIZE = 5 * 1024 * 1024
 
 
 def _valid_phone(phone):
-    """Return cleaned phone or None if invalid. Accepts 10-digit US numbers."""
     digits = re.sub(r"\D", "", phone)
     if digits.startswith("1") and len(digits) == 11:
         digits = digits[1:]
@@ -64,356 +52,410 @@ def _valid_phone(phone):
 
 
 def _org_upload_dir(org_id):
-    path = os.path.join(app.config["UPLOAD_FOLDER"], str(org_id))
+    path = os.path.join(UPLOAD_FOLDER, str(org_id))
     os.makedirs(path, exist_ok=True)
     return path
 
 
-# --- CLI ---
-
-@app.cli.command("create-superuser")
-@click.option("--email", prompt=True)
-@click.option("--password", prompt=True, hide_input=True, confirmation_prompt=True)
-@click.option("--org-name", prompt="Organization name")
-def create_superuser(email, password, org_name):
-    """Create a superuser account with a new organization."""
-    if User.query.filter_by(email=email).first():
-        click.echo(f"Error: user with email {email} already exists.")
-        return
-
-    slug = _slugify(org_name)
-    base_slug = slug
-    counter = 1
-    while Organization.query.filter_by(slug=slug).first():
-        slug = f"{base_slug}-{counter}"
-        counter += 1
-
-    org = Organization(name=org_name, slug=slug)
-    db.session.add(org)
-    db.session.flush()
-
-    pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-    user = User(org_id=org.id, email=email, password_hash=pw_hash, role="superuser")
-    db.session.add(user)
-    db.session.commit()
-    click.echo(f"Superuser {email} created (org: {org_name}, slug: {slug}).")
+def _redirect(path, msg=None):
+    url = path
+    if msg:
+        url += ("&" if "?" in path else "?") + f"msg={msg}"
+    return RedirectResponse(url=url, status_code=303)
 
 
 # --- Auth ---
 
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    if request.method == "POST":
-        org_name = request.form.get("org_name", "").strip()
-        email = request.form.get("email", "").strip()
-        password = request.form.get("password", "")
-
-        if not org_name or not email or not password:
-            flash("All fields are required.")
-            return redirect(url_for("register"))
-
-        if User.query.filter_by(email=email).first():
-            flash("Email already registered.")
-            return redirect(url_for("register"))
-
-        slug = _slugify(org_name)
-        base_slug = slug
-        counter = 1
-        while Organization.query.filter_by(slug=slug).first():
-            slug = f"{base_slug}-{counter}"
-            counter += 1
-
-        org = Organization(name=org_name, slug=slug)
-        db.session.add(org)
-        db.session.flush()
-
-        pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-        user = User(org_id=org.id, email=email, password_hash=pw_hash, role="owner")
-        db.session.add(user)
-        db.session.commit()
-
-        login_user(user)
-        return redirect(url_for("members_page"))
-
-    return render_template("register.html")
+@app.get("/register")
+def register_page(request: Request, msg: str = ""):
+    return templates.TemplateResponse("register.html", {"request": request, "msg": msg})
 
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        email = request.form.get("email", "").strip()
-        password = request.form.get("password", "")
-        user = User.query.filter_by(email=email).first()
-        if user and bcrypt.checkpw(password.encode(), user.password_hash.encode()):
-            login_user(user)
-            return redirect(url_for("members_page"))
-        flash("Invalid email or password.")
-    return render_template("login.html")
+@app.post("/register")
+def register(
+    request: Request,
+    org_name: str = Form(""),
+    email: str = Form(""),
+    password: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    org_name = org_name.strip()
+    email = email.strip()
+    if not org_name or not email or not password:
+        return _redirect("/register", "All fields are required.")
+
+    if db.query(User).filter_by(email=email).first():
+        return _redirect("/register", "Email already registered.")
+
+    slug = _slugify(org_name)
+    base_slug = slug
+    counter = 1
+    while db.query(Organization).filter_by(slug=slug).first():
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+
+    org = Organization(name=org_name, slug=slug)
+    db.add(org)
+    db.flush()
+
+    pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    user = User(org_id=org.id, email=email, password_hash=pw_hash, role="owner")
+    db.add(user)
+    db.commit()
+
+    token = create_access_token(user.id, org.id)
+    resp = RedirectResponse(url="/members", status_code=303)
+    resp.set_cookie("access_token", token, httponly=True, samesite="lax")
+    return resp
 
 
-@app.route("/logout")
+@app.get("/login")
+def login_page(request: Request, msg: str = ""):
+    return templates.TemplateResponse("login.html", {"request": request, "msg": msg})
+
+
+@app.post("/login")
+def login(
+    request: Request,
+    email: str = Form(""),
+    password: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    email = email.strip()
+    user = db.query(User).filter_by(email=email).first()
+    if user and bcrypt.checkpw(password.encode(), user.password_hash.encode()):
+        token = create_access_token(user.id, user.org_id)
+        resp = RedirectResponse(url="/members", status_code=303)
+        resp.set_cookie("access_token", token, httponly=True, samesite="lax")
+        return resp
+    return _redirect("/login", "Invalid email or password.")
+
+
+@app.get("/logout")
 def logout():
-    logout_user()
-    return redirect(url_for("login"))
+    resp = RedirectResponse(url="/login", status_code=303)
+    resp.delete_cookie("access_token")
+    return resp
 
 
 # --- Pages ---
 
-@app.route("/")
-def index():
-    if current_user.is_authenticated:
-        return redirect(url_for("members_page"))
-    return render_template("landing.html")
+@app.get("/")
+def index(request: Request, user: User = Depends(get_optional_user)):
+    if user:
+        return RedirectResponse(url="/members", status_code=303)
+    return templates.TemplateResponse("landing.html", {"request": request})
 
 
-@app.route("/members", methods=["GET", "POST"])
-@login_required
-def members_page():
-    org_id = current_user.org_id
-    if request.method == "POST":
-        # CSV import
-        f = request.files.get("csv_file")
-        if f and f.filename:
-            f.seek(0, 2)
-            if f.tell() > MAX_CSV_SIZE:
-                flash("CSV too large (5 MB max).")
-                return redirect(url_for("members_page"))
-            f.seek(0)
-            stream = io.TextIOWrapper(f.stream, encoding="utf-8", errors="replace")
-            reader = csv.reader(stream)
-            added, skipped = 0, 0
-            for row in reader:
-                if len(row) >= 2:
-                    name = row[0].strip()
-                    phone = _valid_phone(row[1].strip())
-                    if name and phone:
-                        db.session.add(Member(org_id=org_id, name=name, phone=phone))
-                        added += 1
-                    elif name:
-                        skipped += 1
-            db.session.commit()
-            msg = f"CSV imported: {added} added."
-            if skipped:
-                msg += f" {skipped} skipped (invalid phone)."
-            flash(msg)
-            return redirect(url_for("members_page"))
-
-        # Single add
-        name = request.form.get("name", "").strip()
-        phone = _valid_phone(request.form.get("phone", "").strip())
-        if name and phone:
-            db.session.add(Member(org_id=org_id, name=name, phone=phone))
-            db.session.commit()
-            flash("Member added.")
-        elif name:
-            flash("Invalid phone number. Use a 10-digit US number.")
-        return redirect(url_for("members_page"))
-
-    members = Member.query.filter_by(org_id=org_id).order_by(Member.name).all()
-    return render_template("members.html", members=members)
+@app.get("/members")
+def members_page(
+    request: Request,
+    msg: str = "",
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    members = db.query(Member).filter_by(org_id=user.org_id).order_by(Member.name).all()
+    return templates.TemplateResponse("members.html", {
+        "request": request, "members": members, "current_user": user, "msg": msg,
+    })
 
 
-@app.route("/members/<int:id>/edit", methods=["POST"])
-@login_required
-def member_edit(id):
-    m = Member.query.filter_by(id=id, org_id=current_user.org_id).first()
+@app.post("/members")
+async def members_post(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    form = await request.form()
+    csv_file = form.get("csv_file")
+
+    if csv_file and hasattr(csv_file, "filename") and csv_file.filename:
+        contents = await csv_file.read()
+        if len(contents) > MAX_CSV_SIZE:
+            return _redirect("/members", "CSV too large (5 MB max).")
+        stream = io.StringIO(contents.decode("utf-8", errors="replace"))
+        reader = csv.reader(stream)
+        added, skipped = 0, 0
+        for row in reader:
+            if len(row) >= 2:
+                name = row[0].strip()
+                phone = _valid_phone(row[1].strip())
+                if name and phone:
+                    db.add(Member(org_id=user.org_id, name=name, phone=phone))
+                    added += 1
+                elif name:
+                    skipped += 1
+        db.commit()
+        msg = f"CSV imported: {added} added."
+        if skipped:
+            msg += f" {skipped} skipped (invalid phone)."
+        return _redirect("/members", msg)
+
+    name = form.get("name", "").strip()
+    phone_raw = form.get("phone", "").strip()
+    phone = _valid_phone(phone_raw) if phone_raw else None
+    if name and phone:
+        db.add(Member(org_id=user.org_id, name=name, phone=phone))
+        db.commit()
+        return _redirect("/members", "Member added.")
+    elif name:
+        return _redirect("/members", "Invalid phone number. Use a 10-digit US number.")
+    return _redirect("/members")
+
+
+@app.post("/members/{id}/edit")
+def member_edit(
+    id: int,
+    name: str = Form(""),
+    phone: str = Form(""),
+    active: str = Form(None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    m = db.query(Member).filter_by(id=id, org_id=user.org_id).first()
     if not m:
-        flash("Not found.")
-        return redirect(url_for("members_page"))
-    m.name = request.form.get("name", m.name).strip()
-    phone = _valid_phone(request.form.get("phone", m.phone).strip())
-    if not phone:
-        flash("Invalid phone number. Use a 10-digit US number.")
-        return redirect(url_for("members_page"))
-    m.phone = phone
-    m.active = "active" in request.form
-    db.session.commit()
-    flash("Updated.")
-    return redirect(url_for("members_page"))
+        return _redirect("/members", "Not found.")
+    m.name = name.strip() or m.name
+    cleaned = _valid_phone(phone.strip() or m.phone)
+    if not cleaned:
+        return _redirect("/members", "Invalid phone number. Use a 10-digit US number.")
+    m.phone = cleaned
+    m.active = active is not None
+    db.commit()
+    return _redirect("/members", "Updated.")
 
 
-@app.route("/members/<int:id>/delete", methods=["POST"])
-@login_required
-def member_delete(id):
-    m = Member.query.filter_by(id=id, org_id=current_user.org_id).first()
+@app.post("/members/{id}/delete")
+def member_delete(
+    id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    m = db.query(Member).filter_by(id=id, org_id=user.org_id).first()
     if m:
-        db.session.delete(m)
-        db.session.commit()
-        flash("Deleted.")
-    return redirect(url_for("members_page"))
+        db.delete(m)
+        db.commit()
+    return _redirect("/members", "Deleted.")
 
 
-@app.route("/recordings")
-@login_required
-def recordings_page():
-    recs = Recording.query.filter_by(org_id=current_user.org_id).order_by(Recording.created_at.desc()).all()
-    return render_template("recordings.html", recordings=recs)
+@app.get("/recordings")
+def recordings_page(
+    request: Request,
+    msg: str = "",
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    recs = db.query(Recording).filter_by(org_id=user.org_id).order_by(Recording.created_at.desc()).all()
+    return templates.TemplateResponse("recordings.html", {
+        "request": request, "recordings": recs, "current_user": user, "msg": msg,
+    })
 
 
-@app.route("/api/recordings", methods=["POST"])
-@login_required
-def upload_recording():
-    name = request.form.get("name", "").strip() or "Untitled"
-    f = request.files.get("audio")
+@app.post("/api/recordings")
+async def upload_recording(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    form = await request.form()
+    name = (form.get("name", "") or "Untitled").strip()
+    f = form.get("audio")
     if not f:
-        return jsonify(error="No audio file"), 400
-    f.seek(0, 2)
-    if f.tell() > MAX_AUDIO_SIZE:
-        return jsonify(error="File too large (50 MB max)"), 400
-    f.seek(0)
+        return JSONResponse({"error": "No audio file"}, status_code=400)
+    contents = await f.read()
+    if len(contents) > MAX_AUDIO_SIZE:
+        return JSONResponse({"error": "File too large (50 MB max)"}, status_code=400)
 
-    org_id = current_user.org_id
+    org_id = user.org_id
     upload_dir = _org_upload_dir(org_id)
     uid = uuid.uuid4().hex[:10]
     webm_path = os.path.join(upload_dir, f"{uid}.webm")
     mp3_path = os.path.join(upload_dir, f"{uid}.mp3")
-    f.save(webm_path)
+    with open(webm_path, "wb") as out:
+        out.write(contents)
 
-    # Convert to MP3
     result = subprocess.run(
         ["ffmpeg", "-y", "-i", webm_path, "-codec:a", "libmp3lame", "-qscale:a", "4", mp3_path],
-        capture_output=True
+        capture_output=True,
     )
     os.remove(webm_path)
     if result.returncode != 0:
-        return jsonify(error="ffmpeg conversion failed"), 500
+        return JSONResponse({"error": "ffmpeg conversion failed"}, status_code=500)
 
     rec = Recording(org_id=org_id, name=name, filename=f"{org_id}/{uid}.mp3")
-    db.session.add(rec)
-    db.session.commit()
-    return jsonify(id=rec.id, name=rec.name, filename=rec.filename)
+    db.add(rec)
+    db.commit()
+    return JSONResponse({"id": rec.id, "name": rec.name, "filename": rec.filename})
 
 
-@app.route("/recordings/<int:id>/delete", methods=["POST"])
-@login_required
-def recording_delete(id):
-    rec = Recording.query.filter_by(id=id, org_id=current_user.org_id).first()
+@app.post("/recordings/{id}/delete")
+def recording_delete(
+    id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    rec = db.query(Recording).filter_by(id=id, org_id=user.org_id).first()
     if rec:
-        path = os.path.join(app.config["UPLOAD_FOLDER"], rec.filename)
+        path = os.path.join(UPLOAD_FOLDER, rec.filename)
         if os.path.exists(path):
             os.remove(path)
-        db.session.delete(rec)
-        db.session.commit()
-        flash("Recording deleted.")
-    return redirect(url_for("recordings_page"))
+        db.delete(rec)
+        db.commit()
+    return _redirect("/recordings", "Recording deleted.")
 
 
-@app.route("/uploads/<path:filename>")
-def uploaded_file(filename):
-    return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
+@app.get("/meetings")
+def meetings_page(
+    request: Request,
+    msg: str = "",
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    meetings = db.query(Meeting).filter_by(org_id=user.org_id).order_by(Meeting.meeting_date.desc()).all()
+    return templates.TemplateResponse("meetings.html", {
+        "request": request, "meetings": meetings, "current_user": user, "msg": msg,
+    })
 
 
-@app.route("/meetings", methods=["GET", "POST"])
-@login_required
-def meetings_page():
-    org_id = current_user.org_id
-    if request.method == "POST":
-        title = request.form.get("title", "").strip()
-        date_str = request.form.get("meeting_date", "")
-        notes = request.form.get("notes", "").strip()
-        if title and date_str:
-            try:
-                meeting_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-            except ValueError:
-                flash("Invalid date format.")
-                return redirect(url_for("meetings_page"))
-            db.session.add(Meeting(org_id=org_id, title=title, meeting_date=meeting_date, notes=notes))
-            db.session.commit()
-            flash("Meeting created.")
-        return redirect(url_for("meetings_page"))
-    meetings = Meeting.query.filter_by(org_id=org_id).order_by(Meeting.meeting_date.desc()).all()
-    return render_template("meetings.html", meetings=meetings)
+@app.post("/meetings")
+def meetings_post(
+    request: Request,
+    title: str = Form(""),
+    meeting_date: str = Form(""),
+    notes: str = Form(""),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    title = title.strip()
+    notes = notes.strip()
+    if title and meeting_date:
+        try:
+            md = datetime.strptime(meeting_date, "%Y-%m-%d").date()
+        except ValueError:
+            return _redirect("/meetings", "Invalid date format.")
+        db.add(Meeting(org_id=user.org_id, title=title, meeting_date=md, notes=notes))
+        db.commit()
+        return _redirect("/meetings", "Meeting created.")
+    return _redirect("/meetings")
 
 
-@app.route("/meetings/<int:id>")
-@login_required
-def meeting_detail(id):
-    org_id = current_user.org_id
-    meeting = Meeting.query.filter_by(id=id, org_id=org_id).first()
+@app.get("/meetings/{id}")
+def meeting_detail(
+    id: int,
+    request: Request,
+    msg: str = "",
+    next: str = "",
+    meeting_id: str = "",
+    recording_id: str = "",
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    meeting = db.query(Meeting).filter_by(id=id, org_id=user.org_id).first()
     if not meeting:
-        flash("Not found.")
-        return redirect(url_for("meetings_page"))
-    all_members = Member.query.filter_by(org_id=org_id, active=True).order_by(Member.name).all()
-    return render_template("meeting_detail.html", meeting=meeting, all_members=all_members)
+        return _redirect("/meetings", "Not found.")
+    all_members = db.query(Member).filter_by(org_id=user.org_id, active=True).order_by(Member.name).all()
+    return templates.TemplateResponse("meeting_detail.html", {
+        "request": request, "meeting": meeting, "all_members": all_members,
+        "current_user": user, "msg": msg,
+        "next_param": next, "meeting_id_param": meeting_id, "recording_id_param": recording_id,
+    })
 
 
-@app.route("/meetings/<int:id>/members", methods=["POST"])
-@login_required
-def meeting_members_update(id):
-    org_id = current_user.org_id
-    meeting = Meeting.query.filter_by(id=id, org_id=org_id).first()
+@app.post("/meetings/{id}/members")
+async def meeting_members_update(
+    id: int,
+    request: Request,
+    next: str = "",
+    meeting_id: str = "",
+    recording_id: str = "",
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    meeting = db.query(Meeting).filter_by(id=id, org_id=user.org_id).first()
     if not meeting:
-        flash("Not found.")
-        return redirect(url_for("meetings_page"))
-    selected_ids = request.form.getlist("member_ids", type=int)
-    members = Member.query.filter(Member.id.in_(selected_ids), Member.org_id == org_id).all()
+        return _redirect("/meetings", "Not found.")
+    form = await request.form()
+    selected_ids = [int(v) for v in form.getlist("member_ids")]
+    members = db.query(Member).filter(Member.id.in_(selected_ids), Member.org_id == user.org_id).all()
     meeting.members = members
-    db.session.commit()
-    flash("Meeting members updated.")
-    next_page = request.args.get("next")
-    if next_page == "send":
-        return redirect(url_for("send_page",
-                                meeting_id=request.args.get("meeting_id", ""),
-                                recording_id=request.args.get("recording_id", "")))
-    return redirect(url_for("meeting_detail", id=id))
+    db.commit()
+    if next == "send":
+        return _redirect(f"/send?meeting_id={meeting_id}&recording_id={recording_id}", "Meeting members updated.")
+    return _redirect(f"/meetings/{id}", "Meeting members updated.")
 
 
-@app.route("/meetings/<int:id>/delete", methods=["POST"])
-@login_required
-def meeting_delete(id):
-    m = Meeting.query.filter_by(id=id, org_id=current_user.org_id).first()
+@app.post("/meetings/{id}/delete")
+def meeting_delete(
+    id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    m = db.query(Meeting).filter_by(id=id, org_id=user.org_id).first()
     if m:
-        db.session.delete(m)
-        db.session.commit()
-        flash("Deleted.")
-    return redirect(url_for("meetings_page"))
+        db.delete(m)
+        db.commit()
+    return _redirect("/meetings", "Deleted.")
 
 
-@app.route("/send", methods=["GET", "POST"])
-@login_required
-def send_page():
-    org_id = current_user.org_id
-    if request.method == "POST":
-        meeting_id = request.form.get("meeting_id", type=int)
-        recording_id = request.form.get("recording_id", type=int)
-        if meeting_id and recording_id:
-            # Verify resources belong to this org
-            meeting = Meeting.query.filter_by(id=meeting_id, org_id=org_id).first()
-            recording = Recording.query.filter_by(id=recording_id, org_id=org_id).first()
-            if meeting and recording:
-                from caller import send_reminders
-                send_reminders(app, meeting_id, recording_id, org_id)
-                flash("Calls are being sent.")
-        return redirect(url_for("send_page"))
-
-    meetings = Meeting.query.filter_by(org_id=org_id).order_by(Meeting.meeting_date.desc()).all()
-    recordings = Recording.query.filter_by(org_id=org_id).order_by(Recording.created_at.desc()).all()
-    sel_meeting = request.args.get("meeting_id", 0, type=int)
-    sel_recording = request.args.get("recording_id", 0, type=int)
-    return render_template("send.html", meetings=meetings, recordings=recordings,
-                           sel_meeting=sel_meeting, sel_recording=sel_recording)
+@app.get("/send")
+def send_page(
+    request: Request,
+    msg: str = "",
+    meeting_id: int = 0,
+    recording_id: int = 0,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    meetings = db.query(Meeting).filter_by(org_id=user.org_id).order_by(Meeting.meeting_date.desc()).all()
+    recordings = db.query(Recording).filter_by(org_id=user.org_id).order_by(Recording.created_at.desc()).all()
+    return templates.TemplateResponse("send.html", {
+        "request": request, "meetings": meetings, "recordings": recordings,
+        "sel_meeting": meeting_id, "sel_recording": recording_id,
+        "current_user": user, "msg": msg,
+    })
 
 
-@app.route("/api/meeting-members")
-@login_required
-def api_meeting_members():
-    meeting_id = request.args.get("meeting_id", type=int)
+@app.post("/send")
+def send_post(
+    meeting_id: int = Form(0),
+    recording_id: int = Form(0),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if meeting_id and recording_id:
+        meeting = db.query(Meeting).filter_by(id=meeting_id, org_id=user.org_id).first()
+        recording = db.query(Recording).filter_by(id=recording_id, org_id=user.org_id).first()
+        if meeting and recording:
+            from caller import send_reminders
+            send_reminders(meeting_id, recording_id, user.org_id)
+            return _redirect("/send", "Calls are being sent.")
+    return _redirect("/send")
+
+
+@app.get("/api/meeting-members")
+def api_meeting_members(
+    meeting_id: int = 0,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     if not meeting_id:
-        return jsonify(members=[])
-    meeting = Meeting.query.filter_by(id=meeting_id, org_id=current_user.org_id).first()
+        return JSONResponse({"members": []})
+    meeting = db.query(Meeting).filter_by(id=meeting_id, org_id=user.org_id).first()
     if not meeting:
-        return jsonify(members=[])
+        return JSONResponse({"members": []})
     members = [{"name": m.name, "phone": m.phone} for m in meeting.members if m.active]
-    return jsonify(members=members)
+    return JSONResponse({"members": members})
 
 
-@app.route("/api/send-progress")
-@login_required
-def send_progress():
-    meeting_id = request.args.get("meeting_id", type=int)
+@app.get("/api/send-progress")
+def send_progress(
+    meeting_id: int = 0,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     if not meeting_id:
-        return jsonify(error="missing meeting_id"), 400
-    logs = CallLog.query.filter_by(meeting_id=meeting_id, org_id=current_user.org_id).all()
+        return JSONResponse({"error": "missing meeting_id"}, status_code=400)
+    logs = db.query(CallLog).filter_by(meeting_id=meeting_id, org_id=user.org_id).all()
     total = len(logs)
     completed = sum(1 for l in logs if l.status == "completed")
     failed = sum(1 for l in logs if l.status in ("failed", "busy", "no-answer", "canceled"))
@@ -422,67 +464,70 @@ def send_progress():
         {"member": l.member.name, "phone": l.member.phone, "status": l.status}
         for l in logs
     ]
-    return jsonify(total=total, completed=completed, failed=failed, queued=queued, rows=rows)
+    return JSONResponse({"total": total, "completed": completed, "failed": failed, "queued": queued, "rows": rows})
 
 
-@app.route("/log")
-@login_required
-def call_log_page():
-    org_id = current_user.org_id
-    meeting_id = request.args.get("meeting_id", type=int)
-    q = CallLog.query.filter_by(org_id=org_id)
+@app.post("/api/cancel-calls")
+def cancel_calls(
+    meeting_id: int = Form(0),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not meeting_id:
+        return JSONResponse({"error": "missing meeting_id"}, status_code=400)
+    canceled = (
+        db.query(CallLog)
+        .filter_by(meeting_id=meeting_id, org_id=user.org_id)
+        .filter(CallLog.status.in_(["queued", "initiated"]))
+        .update({"status": "canceled", "updated_at": datetime.now(timezone.utc)}, synchronize_session="fetch")
+    )
+    db.commit()
+    return JSONResponse({"canceled": canceled})
+
+
+@app.get("/log")
+def call_log_page(
+    request: Request,
+    msg: str = "",
+    meeting_id: int = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = db.query(CallLog).filter_by(org_id=user.org_id)
     if meeting_id:
         q = q.filter_by(meeting_id=meeting_id)
     logs = q.order_by(CallLog.initiated_at.desc()).all()
-    meetings = Meeting.query.filter_by(org_id=org_id).order_by(Meeting.meeting_date.desc()).all()
-    return render_template("call_log.html", logs=logs, meetings=meetings, selected_meeting=meeting_id)
+    meetings = db.query(Meeting).filter_by(org_id=user.org_id).order_by(Meeting.meeting_date.desc()).all()
+    return templates.TemplateResponse("call_log.html", {
+        "request": request, "logs": logs, "meetings": meetings,
+        "selected_meeting": meeting_id, "current_user": user, "msg": msg,
+    })
 
 
 # --- Twilio endpoints ---
 
-@app.route("/twiml", methods=["GET", "POST"])
-@csrf.exempt
-def twiml():
-    recording_id = request.args.get("recording_id", type=int)
-    rec = db.session.get(Recording, recording_id) if recording_id else None
+@app.api_route("/twiml", methods=["GET", "POST"])
+def twiml(request: Request, recording_id: int = 0, db: Session = Depends(get_db)):
+    rec = db.get(Recording, recording_id) if recording_id else None
     resp = VoiceResponse()
     if rec:
-        domain = os.environ.get("DOMAIN", request.host)
+        domain = os.environ.get("DOMAIN", request.headers.get("host", "localhost:5000"))
         scheme = "https" if "localhost" not in domain else "http"
         resp.play(f"{scheme}://{domain}/uploads/{rec.filename}")
     else:
         resp.say("No recording found. Goodbye.")
-    return Response(str(resp), mimetype="text/xml")
+    return Response(content=str(resp), media_type="text/xml")
 
 
-@app.route("/api/call-status", methods=["POST"])
-@csrf.exempt
-def call_status():
-    sid = request.form.get("CallSid")
-    status = request.form.get("CallStatus")
+@app.post("/api/call-status")
+async def call_status(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    sid = form.get("CallSid")
+    status = form.get("CallStatus")
     if sid and status:
-        log = CallLog.query.filter_by(twilio_call_sid=sid).first()
+        log = db.query(CallLog).filter_by(twilio_call_sid=sid).first()
         if log:
             log.status = status
             log.updated_at = datetime.now(timezone.utc)
-            db.session.commit()
-    return "", 204
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    domain = os.environ.get("DOMAIN", "")
-
-    # Auto-start ngrok tunnel for local dev
-    if not domain or domain.startswith("localhost"):
-        try:
-            from pyngrok import ngrok
-            tunnel = ngrok.connect(port)
-            public_url = tunnel.public_url.replace("http://", "https://")
-            os.environ["DOMAIN"] = public_url.replace("https://", "")
-            print(f" * ngrok tunnel: {public_url}")
-        except Exception as e:
-            print(f" * ngrok not available: {e}")
-            print(" * Twilio callbacks won't work without a public URL")
-
-    app.run(debug=True, port=port)
+            db.commit()
+    return Response(status_code=204)

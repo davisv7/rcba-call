@@ -2,7 +2,8 @@ import os
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from twilio.rest import Client
-from models import db, CallLog, Member, Meeting
+from database import SessionLocal
+from models import CallLog, Member, Meeting
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -14,10 +15,10 @@ def get_twilio_client():
     return Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
 
 
-def send_reminders(app, meeting_id, recording_id, org_id):
-    """Dispatch calls to all active members for a meeting."""
-    with app.app_context():
-        meeting = db.session.get(Meeting, meeting_id)
+def send_reminders(meeting_id, recording_id, org_id):
+    db = SessionLocal()
+    try:
+        meeting = db.get(Meeting, meeting_id)
         members = [m for m in meeting.members if m.active] if meeting else []
         domain = os.environ.get("DOMAIN", "localhost:5000")
         scheme = "http" if "localhost" in domain else "https"
@@ -25,7 +26,6 @@ def send_reminders(app, meeting_id, recording_id, org_id):
 
         logger.info("Sending reminders to %d members (meeting=%d, recording=%d, org=%d)",
                      len(members), meeting_id, recording_id, org_id)
-        logger.info("TwiML URL base: %s://%s", scheme, domain)
 
         for member in members:
             entry = CallLog(
@@ -35,15 +35,21 @@ def send_reminders(app, meeting_id, recording_id, org_id):
                 member_id=member.id,
                 status="queued",
             )
-            db.session.add(entry)
-            db.session.commit()
+            db.add(entry)
+            db.commit()
 
-            executor.submit(_place_call, app, entry.id, member.phone, recording_id, domain, scheme, from_number)
+            executor.submit(_place_call, entry.id, member.phone, recording_id, domain, scheme, from_number)
+    finally:
+        db.close()
 
 
-def _place_call(app, log_id, phone, recording_id, domain, scheme, from_number):
-    with app.app_context():
-        entry = db.session.get(CallLog, log_id)
+def _place_call(log_id, phone, recording_id, domain, scheme, from_number):
+    db = SessionLocal()
+    try:
+        entry = db.get(CallLog, log_id)
+        if entry.status == "canceled":
+            db.close()
+            return
         try:
             client = get_twilio_client()
             twiml_url = f"{scheme}://{domain}/twiml?recording_id={recording_id}"
@@ -66,4 +72,6 @@ def _place_call(app, log_id, phone, recording_id, domain, scheme, from_number):
             logger.error("Call to %s failed: %s", phone, e)
             entry.status = "failed"
         entry.updated_at = datetime.now(timezone.utc)
-        db.session.commit()
+        db.commit()
+    finally:
+        db.close()

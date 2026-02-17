@@ -4,7 +4,7 @@
 <p><strong>Date:</strong> {{ meeting.meeting_date }}</p>
 
 <h3>Members ({{ meeting.members | length }})</h3>
-<form method="post" action="{{ url_for('meeting_members_update', id=meeting.id, next=request.args.get('next', ''), meeting_id=request.args.get('meeting_id', ''), recording_id=request.args.get('recording_id', '')) }}">
+<form method="post" action="/meetings/{{ meeting.id }}/members?next={{ next_param }}&meeting_id={{ meeting_id_param }}&recording_id={{ recording_id_param }}">
   <fieldset style="display:flex; flex-direction:column; gap:.25rem;">
     {% for m in all_members %}
     <label style="display:flex; align-items:center; gap:.5rem;">
@@ -23,7 +23,6 @@
       const boxes = document.querySelectorAll('[name=member_ids]');
       const allChecked = Array.from(boxes).every(c => c.checked);
       boxes.forEach(c => c.checked = !allChecked);
-      const icon = this.querySelector('[data-lucide], svg');
       const next = allChecked ? 'square' : 'square-check';
       this.innerHTML = '<i data-lucide="' + next + '"></i> ' + (allChecked ? 'Select All' : 'Select None');
       lucide.createIcons({ nodes: [this] });
@@ -32,10 +31,10 @@
 </form>
 
 <p>
-  {% if request.args.get('next') == 'send' %}
-    <a href="{{ url_for('send_page', meeting_id=request.args.get('meeting_id', ''), recording_id=request.args.get('recording_id', '')) }}">&larr; Back to send</a>
+  {% if next_param == 'send' %}
+    <a href="/send?meeting_id={{ meeting_id_param }}&recording_id={{ recording_id_param }}">&larr; Back to send</a>
   {% else %}
-    <a href="{{ url_for('meetings_page') }}">&larr; Back to meetings</a>
+    <a href="/meetings">&larr; Back to meetings</a>
   {% endif %}
 </p>
 {% endblock %}

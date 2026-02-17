@@ -27,8 +27,8 @@
   <tbody>
   {% for m in members %}
     <tr data-row>
-      <form id="edit-{{ m.id }}" method="post" action="{{ url_for('member_edit', id=m.id) }}" onsubmit="return normalizePhones(this)"></form>
-      <form id="del-{{ m.id }}" method="post" action="{{ url_for('member_delete', id=m.id) }}" onsubmit="return confirm('Delete?')"></form>
+      <form id="edit-{{ m.id }}" method="post" action="/members/{{ m.id }}/edit" onsubmit="return normalizePhones(this)"></form>
+      <form id="del-{{ m.id }}" method="post" action="/members/{{ m.id }}/delete" onsubmit="return confirm('Delete?')"></form>
         <td><input type="text" name="name" value="{{ m.name }}" form="edit-{{ m.id }}" disabled></td>
         <td><input type="tel" name="phone" class="phone-input" value="{{ m.phone }}" form="edit-{{ m.id }}" disabled></td>
         <td>
@@ -67,11 +67,9 @@ document.addEventListener('input', function(e) {
   const el = e.target;
   const digits = stripToDigits(el.value);
   const formatted = formatPhone(digits);
-  // preserve cursor position relative to digits
   const pos = el.selectionStart;
   const digitsBefore = el.value.slice(0, pos).replace(/\D/g, '').length;
   el.value = formatted;
-  // find cursor position after formatting
   let count = 0, newPos = 0;
   for (let i = 0; i < formatted.length; i++) {
     if (/\d/.test(formatted[i])) count++;
@@ -81,14 +79,12 @@ document.addEventListener('input', function(e) {
   el.setSelectionRange(newPos, newPos);
 });
 
-// handle backspace on formatting chars by deleting the digit before them
 document.addEventListener('keydown', function(e) {
   if (e.key !== 'Backspace') return;
   if (!e.target.classList.contains('phone-input')) return;
   const el = e.target;
   const pos = el.selectionStart;
   if (pos === el.selectionEnd && pos > 0 && !/\d/.test(el.value[pos - 1])) {
-    // find the previous digit and remove it
     let i = pos - 1;
     while (i > 0 && !/\d/.test(el.value[i])) i--;
     if (/\d/.test(el.value[i])) {
@@ -100,14 +96,12 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-// On page load, format existing values
 document.querySelectorAll('.phone-input').forEach(function(el) {
   if (el.value) {
     el.value = formatPhone(stripToDigits(el.value));
   }
 });
 
-// Edit / Cancel row toggling
 document.querySelectorAll('[data-row]').forEach(function(row) {
   const inputs = row.querySelectorAll('input[name=name], input[name=phone]');
   const btnEdit = row.querySelector('.btn-edit');
@@ -129,7 +123,6 @@ document.querySelectorAll('[data-row]').forEach(function(row) {
       i.value = origValues[idx];
       i.disabled = true;
     });
-    // re-format phone display
     inputs[1].value = formatPhone(stripToDigits(inputs[1].value));
     btnEdit.style.display = '';
     btnDel.style.display = '';
@@ -138,7 +131,6 @@ document.querySelectorAll('[data-row]').forEach(function(row) {
   });
 });
 
-// Convert to E.164 before submit
 function normalizePhones(form) {
   form.querySelectorAll('.phone-input').forEach(function(el) {
     let digits = el.value.replace(/\D/g, '');

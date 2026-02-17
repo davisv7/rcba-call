@@ -127,7 +127,6 @@
       border-radius: 2px; width: 0; pointer-events: none;
     }
   </style>
-  <meta name="csrf-token" content="{{ csrf_token() }}">
 </head>
 <body>
 <main class="container">
@@ -137,48 +136,24 @@
       <button class="nav-toggle" onclick="document.getElementById('nav-links').classList.toggle('open')" aria-label="Menu"><span></span></button>
     </div>
     <ul class="nav-links" id="nav-links">
-      <li><a href="{{ url_for('members_page') }}">Members</a></li>
-      <li><a href="{{ url_for('recordings_page') }}">Recordings</a></li>
-      <li><a href="{{ url_for('meetings_page') }}">Meetings</a></li>
-      <li><a href="{{ url_for('send_page') }}">Send</a></li>
-      <li><a href="{{ url_for('call_log_page') }}">Call Log</a></li>
-      <li><a href="{{ url_for('logout') }}">Logout</a></li>
+      <li><a href="/members">Members</a></li>
+      <li><a href="/recordings">Recordings</a></li>
+      <li><a href="/meetings">Meetings</a></li>
+      <li><a href="/send">Send</a></li>
+      <li><a href="/log">Call Log</a></li>
+      <li><a href="/logout">Logout</a></li>
     </ul>
   </nav>
 
-  {% with messages = get_flashed_messages() %}
-  {% if messages %}
+  {% if msg %}
   <div class="flash-container">
-    {% for msg in messages %}
     <div class="flash">{{ msg }}</div>
-    {% endfor %}
   </div>
   {% endif %}
-  {% endwith %}
 
   {% block content %}{% endblock %}
 </main>
 <script src="https://unpkg.com/lucide@0.460.0"></script>
 <script>lucide.createIcons();</script>
-<script>
-(function() {
-  const token = document.querySelector('meta[name="csrf-token"]').content;
-  document.querySelectorAll('form[method="post"]').forEach(f => {
-    if (!f.querySelector('[name="csrf_token"]')) {
-      const inp = document.createElement('input');
-      inp.type = 'hidden'; inp.name = 'csrf_token'; inp.value = token;
-      f.prepend(inp);
-    }
-  });
-  const origFetch = window.fetch;
-  window.fetch = function(url, opts) {
-    opts = opts || {};
-    if (opts.method && opts.method.toUpperCase() === 'POST') {
-      opts.headers = Object.assign({'X-CSRFToken': token}, opts.headers || {});
-    }
-    return origFetch.call(this, url, opts);
-  };
-})();
-</script>
 </body>
 </html>

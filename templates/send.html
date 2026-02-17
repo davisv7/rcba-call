@@ -19,7 +19,10 @@
       {% endfor %}
     </select>
   </label>
-  <button type="submit" onclick="return confirm('Send calls to this meeting\'s members?')"><i data-lucide="phone-outgoing"></i> Send Calls</button>
+  <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
+    <button type="submit" onclick="return confirm('Send calls to this meeting\'s members?')"><i data-lucide="phone-outgoing"></i> Send Calls</button>
+    <button type="button" id="btn-cancel" class="outline secondary" style="display:none;" onclick="cancelCalls()"><i data-lucide="x-circle"></i> Cancel Remaining</button>
+  </div>
 </form>
 
 <div id="recipients" style="margin-top:1rem;"></div>
@@ -66,14 +69,15 @@ function poll() {
     fetch('/api/send-progress?meeting_id=' + mid)
       .then(r => r.json())
       .then(d => {
-        if (!d.total) { document.getElementById('progress').textContent = 'No calls yet.'; return; }
+        if (!d.total) { document.getElementById('progress').textContent = 'No calls yet.'; document.getElementById('btn-cancel').style.display = 'none'; return; }
         document.getElementById('progress').textContent =
           `Total: ${d.total} | Completed: ${d.completed} | Failed: ${d.failed} | Queued: ${d.queued}`;
+        document.getElementById('btn-cancel').style.display = d.queued > 0 ? '' : 'none';
         const tb = document.querySelector('#progress-table tbody');
         tb.innerHTML = '';
         document.getElementById('progress-table').style.display = '';
         d.rows.forEach(r => {
-          const cls = r.status === 'completed' ? 'badge-completed' : r.status === 'failed' ? 'badge-failed' : 'badge-queued';
+          const cls = r.status === 'completed' ? 'badge-completed' : (r.status === 'queued' || r.status === 'initiated') ? 'badge-queued' : 'badge-failed';
           const tr = document.createElement('tr');
           const td1 = tr.appendChild(document.createElement('td'));
           td1.textContent = r.member;
@@ -89,6 +93,15 @@ function poll() {
   };
   fn();
   timer = setInterval(fn, 3000);
+}
+function cancelCalls() {
+  const mid = sel.value;
+  if (!mid || !confirm('Cancel all remaining calls?')) return;
+  const body = new URLSearchParams();
+  body.append('meeting_id', mid);
+  fetch('/api/cancel-calls', { method: 'POST', body: body })
+    .then(r => r.json())
+    .then(d => { poll(); });
 }
 if (sel.value) { showRecipients(); poll(); }
 </script>

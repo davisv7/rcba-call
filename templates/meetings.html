@@ -18,11 +18,11 @@
   <tbody>
   {% for m in meetings %}
     <tr>
-      <td><a href="{{ url_for('meeting_detail', id=m.id) }}">{{ m.title }}</a></td>
+      <td><a href="/meetings/{{ m.id }}">{{ m.title }}</a></td>
       <td>{{ m.meeting_date }}</td>
-      <td><a href="{{ url_for('meeting_detail', id=m.id) }}">{{ m.members | length }} member{{ "s" if m.members | length != 1 }}</a></td>
+      <td><a href="/meetings/{{ m.id }}">{{ m.members | length }} member{{ "s" if m.members | length != 1 }}</a></td>
       <td>
-        <form method="post" action="{{ url_for('meeting_delete', id=m.id) }}" onsubmit="return confirm('Delete?')">
+        <form method="post" action="/meetings/{{ m.id }}/delete" onsubmit="return confirm('Delete?')">
           <button type="submit" class="outline secondary btn-del"><i data-lucide="trash-2"></i></button>
         </form>
       </td>
